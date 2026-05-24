@@ -1,9 +1,9 @@
 /* ========================================
-   FyndRadar — Design System & Layout
+   FyndRadar - Design System & Layout
    ======================================== */
 
 :root {
-  /* Color palette — dark mode with neon accents */
+  /* Color palette - dark mode with neon accents */
   --bg-primary: #0a0e17;
   --bg-secondary: #111827;
   --bg-card: #1a2233;

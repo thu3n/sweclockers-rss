@@ -1,5 +1,5 @@
 /**
- * FyndRadar — SweClockers Deals Ranking
+ * FyndRadar - SweClockers Deals Ranking
  *
  * Fetches RSS feeds from SweClockers "Dagens fynd" and "Övriga fynd",
  * parses deal data, and renders a filterable/sortable ranking grid.
@@ -10,7 +10,7 @@
 // Constants
 // ============================================================
 
-/** Multiple CORS proxies — tried in order until one succeeds */
+/** Multiple CORS proxies - tried in order until one succeeds */
 const CORS_PROXIES = [
   (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
   (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
@@ -221,7 +221,7 @@ function parseDescription(html) {
 
   const textContent = tempDiv.textContent ?? '';
 
-  // Extract product name — look for "Produkt:" field first
+  // Extract product name - look for "Produkt:" field first
   let productName = '';
   const produktMatch = textContent.match(/Produkt:\s*(.+?)(?:\n|$)/);
   if (produktMatch) {
@@ -232,7 +232,7 @@ function parseDescription(html) {
     productName = firstLine.substring(0, 120);
   }
 
-  // Extract price — Swedish format: 8.243 kr = 8 243 SEK (dot = thousands, comma = decimal)
+  // Extract price - Swedish format: 8.243 kr = 8 243 SEK (dot = thousands, comma = decimal)
   let price = null;
   const pricePatterns = [
     /Pris:\s*([\d\s.,]+)\s*(?:kr|:-)/i,
@@ -286,10 +286,10 @@ function parseDescription(html) {
         // Decode HTML entities in query strings that may have been escaped (e.g. &amp;)
         const decoded = href.replace(/&amp;/g, '&');
         imageLinks.push(decoded);
-        return; // Don't add to productLinks — image links aren't buy-links
+        return; // Don't add to productLinks - image links aren't buy-links
       }
     } catch {
-      // href was not a valid URL — fall through
+      // href was not a valid URL - fall through
     }
 
     if (
@@ -685,7 +685,7 @@ function buildCacheKey() {
     .slice(0, 30)
     .map((d) => d.id)
     .join('|');
-  // Simple djb2 hash — no crypto needed, just needs to be stable
+  // Simple djb2 hash - no crypto needed, just needs to be stable
   let hash = 5381;
   for (let i = 0; i < ids.length; i++) {
     hash = ((hash << 5) + hash) ^ ids.charCodeAt(i);
@@ -707,7 +707,7 @@ function saveRankingToCache(cacheKey, rankings) {
       model: OPENAI_MODEL,
     }));
   } catch (err) {
-    // localStorage kan vara full — ignorera tyst
+    // localStorage kan vara full - ignorera tyst
     console.warn('Kunde inte spara ranking till cache:', err);
   }
 }
@@ -754,7 +754,7 @@ function applyRankings(rankings, cachedAt = '') {
       rankWithAi(key, true);
     });
   } else {
-    aiBannerText.textContent = `AI-rankad lista — ${rankings.length} fynd analyserade med ${OPENAI_MODEL}`;
+    aiBannerText.textContent = `AI-rankad lista - ${rankings.length} fynd analyserade med ${OPENAI_MODEL}`;
   }
 
   applyFiltersAndSort();
@@ -762,7 +762,7 @@ function applyRankings(rankings, cachedAt = '') {
 
 /**
  * Sends deals to OpenAI for ranking/scoring.
- * Checks localStorage cache first — only calls the API if no valid cache exists.
+ * Checks localStorage cache first - only calls the API if no valid cache exists.
  * The API key is NEVER stored.
  * @param {string} apiKey
  * @param {boolean} [forceRefresh=false] - Skip cache and always call API
@@ -774,7 +774,7 @@ async function rankWithAi(apiKey, forceRefresh = false) {
   if (!forceRefresh) {
     const cached = loadRankingFromCache(cacheKey);
     if (cached?.rankings?.length > 0) {
-      statusText.textContent = 'Ranking laddad från cache — inga API-anrop gjordes.';
+      statusText.textContent = 'Ranking laddad från cache - inga API-anrop gjordes.';
       applyRankings(cached.rankings, cached.cachedAt);
       return;
     }
@@ -861,10 +861,10 @@ Ranka ALLA deals i listan. rank ska vara 1 för bäst, 2 för näst bäst, osv. 
     /** @type {Array<{id: string, rank: number, score: number, reason: string}>} */
     const rankings = parsed.rankings;
 
-    // Save to cache — API key is NOT saved
+    // Save to cache - API key is NOT saved
     saveRankingToCache(cacheKey, rankings);
 
-    statusText.textContent = 'AI-ranking klar! Sparad i cache — inga fler API-anrop behövs.';
+    statusText.textContent = 'AI-ranking klar! Sparad i cache - inga fler API-anrop behövs.';
     applyRankings(rankings);
   } catch (error) {
     console.error('AI ranking failed:', error);
@@ -1144,7 +1144,7 @@ function resolveDeterministicImage(productUrl) {
       }
     }
 
-    // Prisjakt / Prisbot — maps product comparison page to Pricespy's public CDN image.
+    // Prisjakt / Prisbot - maps product comparison page to Pricespy's public CDN image.
     // The Pricespy CDN (pricespy-75b8.kxcdn.com) uses the same numeric product ID as Prisjakt
     // and serves clean, royalty-free product photography that is publicly accessible without auth.
     if (hostname.includes('prisjakt.nu') || hostname.includes('pricespy.co.uk')) {
@@ -1156,7 +1156,7 @@ function resolveDeterministicImage(productUrl) {
       }
     }
 
-    // Pricerunner — maps product comparison page to their public CDN image.
+    // Pricerunner - maps product comparison page to their public CDN image.
     // PriceRunner product pages: /product/{id}/{slug}
     if (hostname.includes('pricerunner.')) {
       const idMatch = productUrl.match(/\/product\/([A-Z0-9-]+?)(?:\/|$)/);
@@ -1328,14 +1328,14 @@ function buildCatIconSvg(deal) {
 /**
  * Helper to fetch a single product image, update the state, cache, and DOM.
  * Resolution order:
- * 1. Prisjakt links on the deal — maps comparison page ID to Pricespy CDN image.
- * 2. Primary product link — deterministic URL patterns (Amazon, Webhallen, Komplett).
+ * 1. Prisjakt links on the deal - maps comparison page ID to Pricespy CDN image.
+ * 2. Primary product link - deterministic URL patterns (Amazon, Webhallen, Komplett).
  * 3. CORS scraper fallback for all other stores not blocked by anti-bot systems.
  * @param {string} dealId - The unique ID of the deal post
  */
 async function fetchImageForDeal(dealId) {
   const deal = allDeals.find((d) => d.id === dealId);
-  // Require at least one link source — either a store URL or a comparison link
+  // Require at least one link source - either a store URL or a comparison link
   if (!deal || (deal.productLinks.length === 0 && deal.prisjaketLinks.length === 0)) return;
 
   const catIconSvg = buildCatIconSvg(deal);
@@ -1352,7 +1352,7 @@ async function fetchImageForDeal(dealId) {
 
   // Strategy 2 & 3: Deterministic or scraped image from the primary store link
   if (deal.productLinks.length === 0) {
-    // Only had Prisjakt links, and none resolved deterministically above — nothing more we can do
+    // Only had Prisjakt links, and none resolved deterministically above - nothing more we can do
     productImageCache[dealId] = 'FAILED';
     deal.imageUrl = 'FAILED';
     return;
@@ -1428,13 +1428,13 @@ async function init() {
       const cacheKey = buildCacheKey();
       const cached = loadRankingFromCache(cacheKey);
       if (cached?.rankings?.length > 0) {
-        statusText.textContent = `${allDeals.length} fynd laddade — ranking återställd från cache automatiskt`;
+        statusText.textContent = `${allDeals.length} fynd laddade - ranking återställd från cache automatiskt`;
         applyRankings(cached.rankings, cached.cachedAt);
       } else {
         statusText.textContent = `${allDeals.length} fynd laddade från ${feedsLoaded}/${FEEDS.length} trådar`;
       }
     } else {
-      statusText.textContent = 'Inga fynd kunde hämtas. CORS-proxies kan vara nere — prova att ladda om sidan.';
+      statusText.textContent = 'Inga fynd kunde hämtas. CORS-proxies kan vara nere - prova att ladda om sidan.';
       dealsGrid.innerHTML = `
         <div class="empty-state">
           <div class="empty-icon">
