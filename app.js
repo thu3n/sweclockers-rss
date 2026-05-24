@@ -1117,15 +1117,6 @@ function resolveDeterministicImage(productUrl) {
     const url = new URL(productUrl);
     const hostname = url.hostname.toLowerCase();
 
-    // Amazon
-    if (hostname.includes('amazon.')) {
-      const asinMatch = productUrl.match(/\/(?:dp|gp\/product|gp\/aw\/d|gp\/d|product|d)\/([a-z0-9]{10})/i);
-      if (asinMatch) {
-        const asin = asinMatch[1].toUpperCase();
-        return `https://images-na.ssl-images-amazon.com/images/P/${asin}.01.LZZZZZZZ.jpg`;
-      }
-    }
-
     // Webhallen
     if (hostname.includes('webhallen.com')) {
       const idMatch = productUrl.match(/\/product\/([0-9]+)/);
@@ -1198,6 +1189,19 @@ async function fetchProductImage(productUrl) {
       hostname.includes('dustin.se')
     ) {
       return null;
+    }
+
+    // Use Microlink API specifically for sites known to block raw HTML proxies 
+    // or return 1x1 pixels for deterministic images
+    if (hostname.includes('amazon.') || hostname.includes('lg.com')) {
+      const mlRes = await fetch(`https://api.microlink.io/?url=${encodeURIComponent(productUrl)}`);
+      if (mlRes.ok) {
+        const mlData = await mlRes.json();
+        if (mlData?.data?.image?.url) {
+          return mlData.data.image.url;
+        }
+      }
+      return null; // Skip standard cors proxies for these as they will just fail/hang
     }
   } catch (e) {
     // Ignore URL parsing errors and try fallback
