@@ -1117,6 +1117,11 @@ function resolveDeterministicImage(productUrl) {
     const url = new URL(productUrl);
     const hostname = url.hostname.toLowerCase();
 
+    // If it's already a direct image URL (e.g. from forum post <img>)
+    if (productUrl.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i) && !hostname.includes('amazon.')) {
+      return productUrl;
+    }
+
     // Webhallen
     if (hostname.includes('webhallen.com')) {
       const idMatch = productUrl.match(/\/product\/([0-9]+)/);
@@ -1193,7 +1198,7 @@ async function fetchProductImage(productUrl) {
 
     // Use Microlink API specifically for sites known to block raw HTML proxies 
     // or return 1x1 pixels for deterministic images
-    if (hostname.includes('amazon.') || hostname.includes('lg.com')) {
+    if (hostname.includes('amazon.') || hostname.includes('amzn.eu') || hostname.includes('lg.com') || hostname.includes('strauss.com')) {
       const mlRes = await fetch(`https://api.microlink.io/?url=${encodeURIComponent(productUrl)}`);
       if (mlRes.ok) {
         const mlData = await mlRes.json();
