@@ -1190,7 +1190,6 @@ async function fetchProductImage(productUrl) {
     const hostname = url.hostname.toLowerCase();
     if (
       hostname.includes('elgiganten.se') ||
-      hostname.includes('netonnet.se') ||
       hostname.includes('dustin.se')
     ) {
       return null;
@@ -1198,7 +1197,7 @@ async function fetchProductImage(productUrl) {
 
     // Use Microlink API specifically for sites known to block raw HTML proxies 
     // or return 1x1 pixels for deterministic images
-    if (hostname.includes('amazon.') || hostname.includes('amzn.eu') || hostname.includes('lg.com') || hostname.includes('strauss.com')) {
+    if (hostname.includes('amazon.') || hostname.includes('amzn.eu') || hostname.includes('lg.com') || hostname.includes('strauss.com') || hostname.includes('netonnet.se') || hostname.includes('ica.se')) {
       const mlRes = await fetch(`https://api.microlink.io/?url=${encodeURIComponent(productUrl)}`);
       if (mlRes.ok) {
         const mlData = await mlRes.json();
