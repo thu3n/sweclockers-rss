@@ -387,6 +387,106 @@ h1 {
   font-weight: 600;
 }
 
+.status-right {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.status-sep {
+  opacity: 0.5;
+  margin: 0 0.1rem;
+}
+
+.status-updated {
+  color: var(--accent-green);
+}
+
+.status-updated.stale {
+  color: var(--accent-amber);
+}
+
+.btn-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-refresh:hover:not([disabled]) {
+  color: var(--text-primary);
+  border-color: var(--accent-blue);
+}
+
+.btn-refresh[disabled] {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.btn-refresh.spinning svg {
+  animation: spin 0.9s linear infinite;
+}
+
+/* Felläge i rutnätet */
+.error-state .error-detail {
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+  color: var(--text-muted);
+  max-width: 48ch;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.error-actions {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.btn-retry {
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0.6rem 1.1rem;
+  border: 1px solid var(--accent-blue);
+  border-radius: var(--radius-md);
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--accent-blue);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all var(--transition-fast);
+}
+
+.btn-retry:hover {
+  background: rgba(56, 189, 248, 0.22);
+  color: var(--text-primary);
+}
+
+.error-links {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.error-links a {
+  color: var(--accent-blue);
+  text-decoration: none;
+}
+
+.error-links a:hover {
+  text-decoration: underline;
+}
+
 /* ========================================
    AI Banner
    ======================================== */

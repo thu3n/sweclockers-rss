@@ -10,25 +10,41 @@
 // Constants
 // ============================================================
 
-/** Multiple CORS proxies - tried in order until one succeeds */
+/**
+ * Primär datakälla: flödena hämtas av GitHub Actions (scripts/fetch-feeds.mjs)
+ * var 15:e minut och sparas i data/. Sidan läser dem same-origin, helt utan
+ * CORS-proxy. Proxyerna nedan är bara en sista reserv om data/ saknas
+ * (t.ex. när sidan öppnas lokalt via file://).
+ */
+const LOCAL_DATA_DIR = 'data';
+
+/** Publika CORS-proxies - opålitliga, används bara som reserv. */
 const CORS_PROXIES = [
-  (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
   (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  (url) => `https://api.cors.lol/?url=${encodeURIComponent(url)}`,
   (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
 ];
+
+/** Proxies som svarat med hårt fel (401/403/429/timeout) hoppas över resten av sessionen. */
+const deadProxies = new Set();
 
 const FEEDS = [
   {
     url: 'https://www.sweclockers.com/feeds/forum/trad/999559',
+    threadUrl: 'https://www.sweclockers.com/forum/trad/999559',
     source: 'tech',
     label: 'Teknik',
   },
   {
     url: 'https://www.sweclockers.com/feeds/forum/trad/1465406',
+    threadUrl: 'https://www.sweclockers.com/forum/trad/1465406',
     source: 'other',
     label: 'Övrigt',
   },
 ];
+
+/** Hur ofta sidan tyst kollar efter nya fynd (ms). */
+const AUTO_REFRESH_INTERVAL = 10 * 60 * 1000;
 
 const OPENAI_MODEL = 'gpt-4o-mini';
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
@@ -51,6 +67,15 @@ let aiRankings = new Map();
 
 let isAiRanked = false;
 
+/** Metadata från data/meta.json (när flödena senast hämtades av GitHub Actions). */
+let dataMeta = null;
+
+/** Hur flödena hämtades senast: 'local' (data/) eller 'proxy'. */
+let lastDataSource = null;
+
+/** Pågår en (om)laddning just nu? */
+let isLoading = false;
+
 // ============================================================
 // DOM References
 // ============================================================
@@ -71,6 +96,7 @@ const aiBanner = document.getElementById('ai-banner');
 const aiBannerText = document.getElementById('ai-banner-text');
 const aiClearBtn = document.getElementById('ai-clear-btn');
 const loadingOverlay = document.getElementById('loading-overlay');
+const refreshBtn = document.getElementById('refresh-btn');
 
 let currentSourceFilter = 'all';
 
@@ -113,9 +139,10 @@ let currentSourceFilter = 'all';
  */
 async function fetchWithCorsProxy(targetUrl, expectXml = false) {
   for (let i = 0; i < CORS_PROXIES.length; i++) {
+    if (deadProxies.has(i)) continue;
     const proxyUrl = CORS_PROXIES[i](targetUrl);
     try {
-      const response = await fetch(proxyUrl, { signal: AbortSignal.timeout(10000) });
+      const response = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) });
       if (response.ok) {
         const text = await response.text();
         if (expectXml) {
@@ -126,12 +153,60 @@ async function fetchWithCorsProxy(targetUrl, expectXml = false) {
         } else {
           return text;
         }
+      } else if ([401, 403, 429].includes(response.status)) {
+        // Kräver API-nyckel, blockerar domänen eller ratebegränsar - lönlöst att fortsätta fråga.
+        deadProxies.add(i);
+        console.warn(`Proxy ${i + 1} avstängd för sessionen (HTTP ${response.status})`);
       }
     } catch (err) {
+      // Timeout eller nätverksfel (ofta nere helt) - hoppa över resten av sessionen.
+      deadProxies.add(i);
       console.warn(`Proxy ${i + 1}/${CORS_PROXIES.length} failed for ${targetUrl}:`, err.message ?? err);
     }
   }
   throw new Error(`Alla CORS-proxies misslyckades för ${targetUrl}`);
+}
+
+/**
+ * Hämtar en fil från data/ (skapad av GitHub Actions) same-origin.
+ * Cache-bustas med tidsstämpel så att GitHub Pages inte serverar en gammal kopia.
+ * @param {string} name - Filnamn i data/
+ * @param {number} [timeoutMs]
+ * @returns {Promise<Response>}
+ */
+async function fetchLocalData(name, timeoutMs = 8000) {
+  const url = `${LOCAL_DATA_DIR}/${name}?t=${Math.floor(Date.now() / 60000)}`;
+  const response = await fetch(url, { cache: 'no-cache', signal: AbortSignal.timeout(timeoutMs) });
+  if (!response.ok) throw new Error(`HTTP ${response.status} för ${url}`);
+  return response;
+}
+
+/**
+ * Hämtar data/meta.json och data/images.json. Fel ignoreras tyst - de är
+ * bara förbättringar ovanpå flödena.
+ */
+async function loadLocalMetadata() {
+  const [metaRes, imagesRes] = await Promise.allSettled([
+    fetchLocalData('meta.json').then((r) => r.json()),
+    fetchLocalData('images.json').then((r) => r.json()),
+  ]);
+
+  if (metaRes.status === 'fulfilled' && metaRes.value?.updatedAt) {
+    dataMeta = metaRes.value;
+  }
+
+  if (imagesRes.status === 'fulfilled' && imagesRes.value && typeof imagesRes.value === 'object') {
+    let seeded = 0;
+    for (const [dealId, imageUrl] of Object.entries(imagesRes.value)) {
+      if (typeof imageUrl !== 'string' || !imageUrl) continue;
+      // Server-upplöst bild vinner över tidigare klientmisslyckanden.
+      if (!productImageCache[dealId] || productImageCache[dealId] === 'FAILED') {
+        productImageCache[dealId] = imageUrl;
+        seeded++;
+      }
+    }
+    if (seeded > 0) saveImageCache();
+  }
 }
 
 /**
@@ -188,8 +263,23 @@ function parseRssXml(xmlText, meta) {
  * @returns {Promise<Deal[]>}
  */
 async function fetchFeed(feedConfig) {
+  // 1. Primärt: förhämtad kopia i data/ (same-origin, ingen CORS).
+  try {
+    const res = await fetchLocalData(`feed-${feedConfig.source}.xml`);
+    const xmlText = await res.text();
+    if (xmlText.includes('<rss') || xmlText.includes('<channel')) {
+      lastDataSource = lastDataSource === 'proxy' ? 'proxy' : 'local';
+      return parseRssXml(xmlText, feedConfig);
+    }
+    console.warn(`data/feed-${feedConfig.source}.xml såg inte ut som RSS`);
+  } catch (err) {
+    console.warn(`Lokal data saknas för ${feedConfig.label}, provar proxy:`, err.message ?? err);
+  }
+
+  // 2. Reserv: publik CORS-proxy direkt mot SweClockers.
   try {
     const xmlText = await fetchWithCorsProxy(feedConfig.url, true);
+    lastDataSource = 'proxy';
     return parseRssXml(xmlText, feedConfig);
   } catch (err) {
     console.error(`Feed fetch failed for ${feedConfig.url}:`, err);
@@ -1008,8 +1098,11 @@ function getRelativeTime(isoDate) {
   if (diffMin < 1) return 'just nu';
   if (diffMin < 60) return `${diffMin} min sedan`;
   if (diffHours < 24) return `${diffHours} tim sedan`;
-  if (diffDays < 7) return `${diffDays} dagar sedan`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)} veckor sedan`;
+  if (diffDays < 7) return diffDays === 1 ? '1 dag sedan' : `${diffDays} dagar sedan`;
+  if (diffDays < 30) {
+    const weeks = Math.floor(diffDays / 7);
+    return weeks === 1 ? '1 vecka sedan' : `${weeks} veckor sedan`;
+  }
   return new Date(isoDate).toLocaleDateString('sv-SE');
 }
 
@@ -1393,18 +1486,90 @@ function markImageAsFailed(dealId) {
 // Initialization
 // ============================================================
 
-async function init() {
-  loadImageCache();
-  statusText.textContent = 'Hämtar fynd från SweClockers...';
-  renderSkeletons(12);
+/** SVG för fel-/tomtillstånd. */
+const ERROR_ICON_SVG = `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
+
+/**
+ * Uppdaterar statusraden med antal fynd och när datan senast hämtades.
+ * @param {string} [prefix] - Valfri text som visas före tidsstämpeln
+ */
+let statusPrefix = '';
+function updateStatusText(prefix = statusPrefix) {
+  statusPrefix = prefix;
+  const parts = [];
+  if (prefix) parts.push(escapeHtml(prefix));
+
+  if (dataMeta?.updatedAt && lastDataSource === 'local') {
+    const ageMs = Date.now() - new Date(dataMeta.updatedAt).getTime();
+    const when = getRelativeTime(dataMeta.updatedAt);
+    const stale = ageMs > 2 * 60 * 60 * 1000; // >2 h betyder att GitHub Actions troligen inte körts
+    parts.push(
+      `<span class="status-updated${stale ? ' stale' : ''}" title="${escapeHtml(new Date(dataMeta.updatedAt).toLocaleString('sv-SE'))}">Uppdaterat ${escapeHtml(when)}${stale ? ' (kan vara inaktuellt)' : ''}</span>`
+    );
+  } else if (lastDataSource === 'proxy') {
+    parts.push('<span class="status-updated">Hämtat direkt via reservproxy</span>');
+  }
+
+  statusText.innerHTML = parts.join(' <span class="status-sep">·</span> ');
+}
+
+/**
+ * Renderar ett felmeddelande med knapp för att försöka igen och direktlänkar
+ * till forumtrådarna, så att sidan aldrig lämnar användaren i en återvändsgränd.
+ * @param {string} message
+ * @param {string} [detail]
+ */
+function renderErrorState(message, detail = '') {
+  const threadLinks = FEEDS.map(
+    (f) => `<a href="${escapeHtml(f.threadUrl)}" target="_blank" rel="noopener">${escapeHtml(f.label)}</a>`
+  ).join(' · ');
+
+  dealsGrid.innerHTML = `
+    <div class="empty-state error-state">
+      <div class="empty-icon">${ERROR_ICON_SVG}</div>
+      <p>${escapeHtml(message)}</p>
+      ${detail ? `<p class="error-detail">${escapeHtml(detail)}</p>` : ''}
+      <div class="error-actions">
+        <button type="button" id="retry-btn" class="btn-retry">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+          Försök igen
+        </button>
+        <span class="error-links">Eller läs trådarna direkt: ${threadLinks}</span>
+      </div>
+    </div>`;
+
+  document.getElementById('retry-btn')?.addEventListener('click', () => loadDeals({ silent: false }));
+}
+
+/**
+ * Hämtar båda flödena och bygger om listan.
+ * @param {{ silent?: boolean }} [opts] - silent = bakgrundsuppdatering utan skeletons
+ * @returns {Promise<boolean>} true om fynd laddades
+ */
+async function loadDeals({ silent = false } = {}) {
+  if (isLoading) return false;
+  isLoading = true;
+  refreshBtn?.classList.add('spinning');
+  refreshBtn?.setAttribute('disabled', '');
+
+  if (!silent) {
+    statusText.textContent = 'Hämtar fynd från SweClockers...';
+    renderSkeletons(12);
+  }
 
   try {
-    const results = await Promise.allSettled(FEEDS.map(fetchFeed));
+    lastDataSource = null;
+    const [results] = await Promise.all([
+      Promise.allSettled(FEEDS.map(fetchFeed)),
+      loadLocalMetadata(),
+    ]);
 
+    /** @type {Deal[]} */
+    const fresh = [];
     let feedsLoaded = 0;
     results.forEach((result, i) => {
       if (result.status === 'fulfilled' && result.value.length > 0) {
-        allDeals.push(...result.value);
+        fresh.push(...result.value);
         feedsLoaded++;
       } else {
         const reason = result.status === 'rejected' ? result.reason : 'Inga deals hittades';
@@ -1414,13 +1579,34 @@ async function init() {
 
     // Deduplicate by post URL
     const seen = new Set();
-    allDeals = allDeals.filter((d) => {
+    const deduped = fresh.filter((d) => {
       if (seen.has(d.id)) return false;
       seen.add(d.id);
       return true;
     });
 
-    if (allDeals.length > 0) {
+    if (deduped.length === 0) {
+      if (silent && allDeals.length > 0) {
+        // Behåll det vi redan visar; störa inte användaren.
+        updateStatusText(`${allDeals.length} fynd`);
+        return false;
+      }
+      statusText.textContent = 'Inga fynd kunde hämtas.';
+      renderErrorState(
+        'Kunde inte hämta data från SweClockers.',
+        'Varken den förhämtade datan eller reservproxyn svarade. Kontrollera din anslutning och försök igen.'
+      );
+      return false;
+    }
+
+    // Vid tyst uppdatering: hoppa över omrendering om inget ändrats.
+    const prevIds = allDeals.map((d) => d.id).join('|');
+    const nextIds = deduped.map((d) => d.id).join('|');
+    const changed = prevIds !== nextIds;
+    const newCount = allDeals.length > 0 ? deduped.filter((d) => !allDeals.some((o) => o.id === d.id)).length : 0;
+
+    if (changed || !silent) {
+      allDeals = deduped;
       populateCategoryFilter();
       applyFiltersAndSort(); // Render first so displayDeals is populated
 
@@ -1428,34 +1614,61 @@ async function init() {
       const cacheKey = buildCacheKey();
       const cached = loadRankingFromCache(cacheKey);
       if (cached?.rankings?.length > 0) {
-        statusText.textContent = `${allDeals.length} fynd laddade - ranking återställd från cache automatiskt`;
         applyRankings(cached.rankings, cached.cachedAt);
+        updateStatusText(`${allDeals.length} fynd · AI-ranking återställd från cache`);
       } else {
-        statusText.textContent = `${allDeals.length} fynd laddade från ${feedsLoaded}/${FEEDS.length} trådar`;
+        if (isAiRanked && changed) {
+          // Listan har ändrats sedan rankingen gjordes - visa det tydligt.
+          aiBannerText.textContent = 'Nya fynd har tillkommit sedan AI-rankingen gjordes. Kör AI Ranka igen för att uppdatera.';
+        }
+        const prefix = newCount > 0
+          ? `${allDeals.length} fynd · ${newCount} ${newCount === 1 ? 'nytt' : 'nya'}`
+          : `${allDeals.length} fynd laddade från ${feedsLoaded}/${FEEDS.length} trådar`;
+        updateStatusText(prefix);
       }
     } else {
-      statusText.textContent = 'Inga fynd kunde hämtas. CORS-proxies kan vara nere - prova att ladda om sidan.';
-      dealsGrid.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-icon">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-          </div>
-          <p>Kunde inte hämta data från SweClockers.</p>
-          <p style="font-size: 0.85rem; margin-top: 0.5rem; color: var(--text-muted);">Alla CORS-proxies verkar vara nere. Prova att ladda om om en stund.</p>
-        </div>`;
+      updateStatusText(`${allDeals.length} fynd`);
     }
+    return true;
   } catch (error) {
-    console.error('Init error:', error);
-    statusText.textContent = 'Kunde inte ladda fynd. Försök igen senare.';
-    dealsGrid.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-        </div>
-        <p>Kunde inte hämta data. Prova att ladda om sidan.</p>
-      </div>`;
+    console.error('Load error:', error);
+    if (!silent || allDeals.length === 0) {
+      statusText.textContent = 'Kunde inte ladda fynd.';
+      renderErrorState('Kunde inte hämta data.', String(error?.message ?? error));
+    }
+    return false;
+  } finally {
+    isLoading = false;
+    refreshBtn?.classList.remove('spinning');
+    refreshBtn?.removeAttribute('disabled');
   }
 }
 
-init();
+async function init() {
+  loadImageCache();
 
+  refreshBtn?.addEventListener('click', () => loadDeals({ silent: allDeals.length > 0 }));
+
+  await loadDeals();
+
+  // Tyst bakgrundsuppdatering med jämna mellanrum, och när fliken blir synlig
+  // igen efter att ha varit dold en längre stund.
+  let lastLoadAt = Date.now();
+  const maybeRefresh = () => {
+    if (document.hidden || isLoading) return;
+    if (Date.now() - lastLoadAt < AUTO_REFRESH_INTERVAL) return;
+    lastLoadAt = Date.now();
+    loadDeals({ silent: true });
+  };
+  setInterval(maybeRefresh, 60 * 1000);
+  document.addEventListener('visibilitychange', maybeRefresh);
+
+  // Håll "Uppdaterat X min sedan" färskt utan att hämta något.
+  setInterval(() => {
+    if (!isLoading && allDeals.length > 0 && statusText.querySelector('.status-updated')) {
+      updateStatusText();
+    }
+  }, 60 * 1000);
+}
+
+init();

@@ -1,0 +1,46 @@
+name: Uppdatera SweClockers-flöden
+
+on:
+  schedule:
+    # Var 15:e minut. GitHub kan fördröja cron-jobb några minuter vid hög last.
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/fetch-feeds.mjs'
+      - '.github/workflows/update-feeds.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-feeds
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Hämta flöden och produktbilder
+        run: node scripts/fetch-feeds.mjs
+
+      - name: Committa om något ändrats
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          # meta.json ändras alltid (tidsstämpel). Committa bara om flöden/bilder ändrats.
+          if git diff --cached --quiet -- data/feed-tech.xml data/feed-other.xml data/images.json; then
+            echo "Inga nya inlägg - hoppar över commit."
+            exit 0
+          fi
+          git commit -m "chore(data): uppdatera flöden $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git pull --rebase origin main
+          git push
