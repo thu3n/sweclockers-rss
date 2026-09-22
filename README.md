@@ -25,9 +25,26 @@ Nu hämtas flödena istället av GitHub Actions:
 4. Sidan läser `data/` same-origin. Om filerna saknas (t.ex. lokalt via `file://`)
    används de publika proxyerna som sista reserv.
 
+Jobbet bygger dessutom upp `data/history.json` (pris per Prisjakt-ID över tid,
+för "Lägsta hittills"-märket och "Tidigare tipsat för") och `data/status.json`
+(butikssidor som svarar 404/410 markeras "Sidan borta").
+
 Statusraden visar när datan senast hämtades. Sidan kollar tyst efter nya fynd
 var tionde minut och när fliken blir synlig igen. Knappen bredvid antalet fynd
 uppdaterar manuellt.
+
+## Funktioner
+
+- Rabattmärke och överstruket ordinarie pris när inlägget anger det
+- "Lägsta hittills" baserat på tidigare tips i trådarna
+- "Nytt" på fynd som tillkommit sedan ditt förra besök, plus statistikrad
+- Spara fynd (stjärna) och dölj fynd (kryss), lagras lokalt i webbläsaren
+- Filter på butik, sortering på rabatt, butikslogotyper på knapparna
+- Bevakningsord med webbnotiser när ett matchande fynd dyker upp
+- Dela-knapp med länk direkt till kortet (`#post-<id>`)
+- Ljust och mörkt tema (följer systemet, kan växlas, `?theme=light` fungerar också)
+- Installerbar som app (PWA) med offline-reserv via service worker
+- Senaste listan sparas lokalt så sidan ritas direkt vid nästa besök
 
 ## Köra lokalt
 

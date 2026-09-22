@@ -46,6 +46,18 @@ const FEEDS = [
 /** Hur ofta sidan tyst kollar efter nya fynd (ms). */
 const AUTO_REFRESH_INTERVAL = 10 * 60 * 1000;
 
+/** localStorage-nycklar för användarens egna data. */
+const LS_FAVORITES = 'fyndradar_favorites';
+const LS_HIDDEN = 'fyndradar_hidden';
+const LS_LAST_VISIT = 'fyndradar_last_visit';
+const LS_WATCH_WORDS = 'fyndradar_watch_words';
+const LS_THEME = 'fyndradar_theme';
+const LS_SNAPSHOT = 'fyndradar_snapshot_v1';
+const LS_NOTIFIED = 'fyndradar_notified';
+
+/** Text som tyder på att fyndet inte längre gäller. */
+const SOLD_OUT_RE = /slutsåld|slut i lager|sold out|utgång(?:et|en)|utgått|expired|inte längre|gäller ej|edit:?\s*slut/i;
+
 const OPENAI_MODEL = 'gpt-4o-mini';
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 
@@ -76,6 +88,47 @@ let lastDataSource = null;
 /** Pågår en (om)laddning just nu? */
 let isLoading = false;
 
+/** Användarens sparade fynd (inläggs-URL:er). */
+let favorites = new Set(loadJsonFromStorage(LS_FAVORITES, []));
+
+/** Fynd användaren dolt. */
+let hiddenDeals = new Set(loadJsonFromStorage(LS_HIDDEN, []));
+
+/** Tidsstämpel (ms) för föregående besök - allt nyare markeras som nytt. */
+const previousVisitAt = Number(localStorage.getItem(LS_LAST_VISIT) ?? 0) || 0;
+
+/** Bevakningsord för notiser. */
+let watchWords = loadJsonFromStorage(LS_WATCH_WORDS, []);
+
+/** Prishistorik från data/history.json: prisjaktId -> [{ d, p, post }]. */
+let priceHistory = {};
+
+/** Länkstatus från data/status.json: inläggs-URL -> 'gone' | 'ok'. */
+let linkStatus = {};
+
+/** Visa bara sparade fynd? */
+let showFavoritesOnly = false;
+
+/** Visa dolda fynd (för att kunna ångra)? */
+let showHidden = false;
+
+function loadJsonFromStorage(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveJsonToStorage(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* kvoten full - ignorera */
+  }
+}
+
 // ============================================================
 // DOM References
 // ============================================================
@@ -97,6 +150,14 @@ const aiBannerText = document.getElementById('ai-banner-text');
 const aiClearBtn = document.getElementById('ai-clear-btn');
 const loadingOverlay = document.getElementById('loading-overlay');
 const refreshBtn = document.getElementById('refresh-btn');
+const storeFilter = document.getElementById('store-filter');
+const favoritesToggle = document.getElementById('favorites-toggle');
+const themeToggle = document.getElementById('theme-toggle');
+const statsStrip = document.getElementById('stats-strip');
+const watchWordsInput = document.getElementById('watch-words');
+const notifyBtn = document.getElementById('notify-btn');
+const notifyStatus = document.getElementById('notify-status');
+const showHiddenBtn = document.getElementById('show-hidden-btn');
 
 let currentSourceFilter = 'all';
 
@@ -186,13 +247,21 @@ async function fetchLocalData(name, timeoutMs = 8000) {
  * bara förbättringar ovanpå flödena.
  */
 async function loadLocalMetadata() {
-  const [metaRes, imagesRes] = await Promise.allSettled([
+  const [metaRes, imagesRes, historyRes, statusRes] = await Promise.allSettled([
     fetchLocalData('meta.json').then((r) => r.json()),
     fetchLocalData('images.json').then((r) => r.json()),
+    fetchLocalData('history.json').then((r) => r.json()),
+    fetchLocalData('status.json').then((r) => r.json()),
   ]);
 
   if (metaRes.status === 'fulfilled' && metaRes.value?.updatedAt) {
     dataMeta = metaRes.value;
+  }
+  if (historyRes.status === 'fulfilled' && historyRes.value && typeof historyRes.value === 'object') {
+    priceHistory = historyRes.value;
+  }
+  if (statusRes.status === 'fulfilled' && statusRes.value?.status && typeof statusRes.value.status === 'object') {
+    linkStatus = statusRes.value.status;
   }
 
   if (imagesRes.status === 'fulfilled' && imagesRes.value && typeof imagesRes.value === 'object') {
@@ -238,19 +307,31 @@ function parseRssXml(xmlText, meta) {
       productImageCache[link] = parsed.imageLinks[0];
     }
 
+    const storeUrl = parsed.productLinks[0] ?? '';
+    const prisjaktId = parsed.prisjaketLinks
+      .map((u) => u.match(/[?&]p=(\d+)/)?.[1] ?? u.match(/prisjakt\.nu\/(?:en\/)?product(?:\.php)?\/?(\d+)/)?.[1])
+      .find(Boolean) ?? null;
+
     deals.push({
       id: link,
+      postId: link.match(/\/post\/(\d+)/)?.[1] ?? link,
       title: parsed.productName,
       description: parsed.cleanText,
       author,
       link,
       pubDate: pubDate ? new Date(pubDate).toISOString() : '',
       price: parsed.price,
+      originalPrice: parsed.originalPrice,
+      discountPct: parsed.discountPct,
+      soldOut: parsed.soldOut,
       category: parsed.category,
       source: meta.source,
       sourceLabel: meta.label,
       productLinks: parsed.productLinks,
       prisjaketLinks: parsed.prisjaketLinks,
+      prisjaktId,
+      store: storeUrl ? extractStoreName(storeUrl) : '',
+      storeDomain: storeUrl ? safeHostname(storeUrl) : '',
     });
   });
 
@@ -317,9 +398,10 @@ function parseDescription(html) {
   if (produktMatch) {
     productName = produktMatch[1].trim();
   } else {
-    // Use first sentence as fallback
-    const firstLine = textContent.trim().split('\n')[0] ?? '';
-    productName = firstLine.substring(0, 120);
+    // Inget "Produkt:"-fält - använd första meningen, kapad till rimlig rubriklängd.
+    const firstLine = (textContent.trim().split('\n')[0] ?? '').trim();
+    const sentence = firstLine.match(/^(.{12,90}?[.!?])(\s|$)/)?.[1] ?? firstLine;
+    productName = sentence.length > 90 ? sentence.substring(0, 88).replace(/\s+\S*$/, '') + '…' : sentence;
   }
 
   // Extract price - Swedish format: 8.243 kr = 8 243 SEK (dot = thousands, comma = decimal)
@@ -344,6 +426,41 @@ function parseDescription(html) {
       }
     }
   }
+
+  // Ordinarie pris och rabatt - "ord. pris 1 499 kr", "tidigare 999:-", "(1 299 kr)", "nedsatt 71 %", "-40%"
+  let originalPrice = null;
+  let discountPct = null;
+  const origPatterns = [
+    /(?:ord(?:inarie|\.)?\s*pris|ordinarie|tidigare|rek(?:ommenderat|\.)?\s*pris|normalpris|listpris|förut|innan)\s*:?\s*(?:ca\.?\s*)?([\d][\d\s.]*)\s*(?:kr|:-|sek)/i,
+    /\(\s*(?:ord\.?\s*|ordinarie\s*)?([\d][\d\s.]*)\s*(?:kr|:-)\s*\)/i,
+  ];
+  for (const pattern of origPatterns) {
+    const m = textContent.match(pattern);
+    if (m) {
+      const parsed = parseFloat(m[1].replace(/\s/g, '').replace(/\./g, ''));
+      if (!isNaN(parsed) && price && parsed > price && parsed < 10000000) {
+        originalPrice = Math.round(parsed);
+        break;
+      }
+    }
+  }
+  const pctMatch = textContent.match(/(?:nedsatt(?:\s+med)?|rabatt(?:erat)?(?:\s+med)?|spara|-)\s*(\d{1,2})\s*%/i) ||
+                   textContent.match(/(\d{1,2})\s*%\s*(?:rabatt|billigare|nedsatt|off)/i);
+  if (pctMatch) {
+    const pct = parseInt(pctMatch[1], 10);
+    if (pct >= 5 && pct <= 95) discountPct = pct;
+  }
+  if (originalPrice && price) {
+    discountPct = Math.round((1 - price / originalPrice) * 100);
+  } else if (discountPct && price && !originalPrice) {
+    originalPrice = Math.round(price / (1 - discountPct / 100));
+  }
+  if (discountPct !== null && discountPct < 5) {
+    discountPct = null;
+    originalPrice = null;
+  }
+
+  const soldOut = SOLD_OUT_RE.test(textContent);
 
   // Extract category
   let category = 'Övrigt';
@@ -436,10 +553,18 @@ function parseDescription(html) {
     .replace(/Kategori:.*?\n/g, '')
     .replace(/Prisjakt:.*?\n/g, '')
     .replace(/Pris:.*?\n/g, '')
-    .trim()
-    .substring(0, 300);
+    .trim();
 
-  return { productName, price, category, cleanText, productLinks, prisjaketLinks, imageLinks };
+  // Upprepa inte rubriken i beskrivningen när den hämtats från första meningen.
+  if (!produktMatch && productName) {
+    const head = productName.replace(/…$/, '');
+    if (cleanText.startsWith(head)) {
+      cleanText = cleanText.slice(head.length).replace(/^[\s.!?:,-]+/, '');
+    }
+  }
+  cleanText = cleanText.substring(0, 300);
+
+  return { productName, price, originalPrice, discountPct, soldOut, category, cleanText, productLinks, prisjaketLinks, imageLinks };
 }
 
 // ============================================================
@@ -493,7 +618,11 @@ function renderDeals() {
   displayDeals.forEach((deal, index) => {
     const card = document.createElement('article');
     card.className = 'deal-card';
+    card.id = `post-${deal.postId}`;
     card.dataset.id = deal.id;
+    if (deal.soldOut || linkStatus[deal.id] === 'gone') card.classList.add('is-gone');
+    if (hiddenDeals.has(deal.id)) card.classList.add('is-hidden');
+    if (isNewSinceLastVisit(deal)) card.classList.add('is-new');
     card.style.animationDelay = `${Math.min(index * 40, 400)}ms`;
 
     const aiRanking = aiRankings.get(deal.id);
@@ -513,8 +642,42 @@ function renderDeals() {
 
     // Price display
     const priceHtml = deal.price
-      ? `<span class="card-price">${formatPrice(deal.price)}</span>`
+      ? `<span class="card-price">${formatPrice(deal.price)}</span>${deal.originalPrice ? `<span class="card-price-original">${formatPrice(deal.originalPrice)}</span>` : ''}`
       : `<span class="card-price no-price">Pris ej angivet</span>`;
+
+    const isGone = deal.soldOut || linkStatus[deal.id] === 'gone';
+    const isNew = isNewSinceLastVisit(deal);
+    const isFav = favorites.has(deal.id);
+    const isHidden = hiddenDeals.has(deal.id);
+    const history = getPriceHistorySummary(deal);
+
+    const badges = [];
+    if (deal.discountPct) badges.push(`<span class="badge badge-discount">-${deal.discountPct} %</span>`);
+    if (history?.isLowest) badges.push(`<span class="badge badge-lowest" title="Lägsta pris som tipsats för produkten hittills">Lägsta hittills</span>`);
+    if (isGone) badges.push(`<span class="badge badge-gone">${deal.soldOut ? 'Troligen slut' : 'Sidan borta'}</span>`);
+    if (isNew) badges.push(`<span class="badge badge-new">Nytt</span>`);
+    const badgesHtml = badges.length ? `<div class="card-badges">${badges.join('')}</div>` : '';
+
+    const historyHtml = history && !history.isLowest && history.previous
+      ? `<div class="card-history" title="Baserat på tidigare tips i trådarna">Tidigare tipsat för ${formatPrice(history.previous.p)} (${getRelativeTime(history.previous.d)})${history.lowest < history.previous.p ? `, lägst ${formatPrice(history.lowest)}` : ''}</div>`
+      : history?.isLowest && history.count > 0
+        ? `<div class="card-history">Lägre än ${history.count} tidigare ${history.count === 1 ? 'tips' : 'tips'} (lägst innan: ${formatPrice(history.lowest)})</div>`
+        : '';
+
+    const actionsHtml = `
+      <div class="card-actions">
+        <button type="button" class="card-action${isFav ? ' active' : ''}" data-action="favorite" data-id="${escapeHtml(deal.id)}" title="${isFav ? 'Ta bort från sparade' : 'Spara fynd'}" aria-label="${isFav ? 'Ta bort från sparade' : 'Spara fynd'}" aria-pressed="${isFav}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="${isFav ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+        </button>
+        <button type="button" class="card-action" data-action="share" data-id="${escapeHtml(deal.id)}" title="Dela fynd" aria-label="Dela fynd">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+        </button>
+        <button type="button" class="card-action" data-action="hide" data-id="${escapeHtml(deal.id)}" title="${isHidden ? 'Visa igen' : 'Dölj fynd'}" aria-label="${isHidden ? 'Visa igen' : 'Dölj fynd'}">
+          ${isHidden
+            ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>'
+            : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>'}
+        </button>
+      </div>`;
 
     // Relative time
     const timeAgo = deal.pubDate ? getRelativeTime(deal.pubDate) : '';
@@ -560,6 +723,8 @@ function renderDeals() {
       ${aiBadgeHtml}
       <div class="${containerClass}">
         ${visualHtml}
+        ${badgesHtml}
+        ${actionsHtml}
       </div>
       <div class="card-content-inner">
         <div class="card-header">
@@ -569,10 +734,11 @@ function renderDeals() {
         <h3 class="card-title">${escapeHtml(deal.title)}</h3>
         ${deal.description ? `<p class="card-description">${escapeHtml(deal.description)}</p>` : ''}
         ${aiReasonHtml}
-        
+        ${historyHtml}
+
         <div class="card-footer">
           <div class="price-wrapper">
-            <span class="price-label">Nuvarande pris</span>
+            <span class="price-label">${isGone ? 'Pris vid tipset' : 'Nuvarande pris'}</span>
             ${priceHtml}
           </div>
           <div class="card-meta">
@@ -605,7 +771,11 @@ function buildLinksHtml(deal) {
   if (deal.productLinks.length > 0) {
     mainUrl = deal.productLinks[0];
     const store = extractStoreName(mainUrl);
-    mainLabel = `Till erbjudandet (${store})`;
+    const domain = safeHostname(mainUrl);
+    const favicon = domain
+      ? `<img class="store-favicon" src="https://icons.duckduckgo.com/ip3/${escapeHtml(domain)}.ico" alt="" width="16" height="16" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()" />`
+      : '';
+    mainLabel = `${favicon}Till ${escapeHtml(store)}`;
     isStoreLink = true;
   }
 
@@ -708,6 +878,20 @@ function applyFiltersAndSort() {
     filtered = filtered.filter((d) => d.category.toLowerCase() === catVal.toLowerCase());
   }
 
+  // Store filter
+  const storeVal = storeFilter?.value ?? 'all';
+  if (storeVal !== 'all') {
+    filtered = filtered.filter((d) => d.storeDomain === storeVal);
+  }
+
+  // Favorites / hidden
+  if (showFavoritesOnly) {
+    filtered = filtered.filter((d) => favorites.has(d.id));
+  }
+  if (!showHidden) {
+    filtered = filtered.filter((d) => !hiddenDeals.has(d.id));
+  }
+
   // Sort
   if (isAiRanked) {
     // Sort by AI rank when AI ranking is active
@@ -727,11 +911,72 @@ function applyFiltersAndSort() {
       case 'price-desc':
         filtered.sort((a, b) => (b.price ?? 0) - (a.price ?? 0));
         break;
+      case 'discount':
+        filtered.sort((a, b) => (b.discountPct ?? -1) - (a.discountPct ?? -1));
+        break;
     }
   }
 
   displayDeals = filtered;
   renderDeals();
+  renderStats();
+}
+
+/**
+ * Fyller butiksfiltret med de butiker som förekommer i listan.
+ */
+function populateStoreFilter() {
+  if (!storeFilter) return;
+  const counts = new Map();
+  allDeals.forEach((d) => {
+    if (!d.storeDomain) return;
+    counts.set(d.storeDomain, (counts.get(d.storeDomain) ?? 0) + 1);
+  });
+  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const currentVal = storeFilter.value;
+  storeFilter.innerHTML = '<option value="all">Alla butiker</option>';
+  sorted.forEach(([domain, count]) => {
+    const opt = document.createElement('option');
+    opt.value = domain;
+    const deal = allDeals.find((d) => d.storeDomain === domain);
+    opt.textContent = `${deal?.store || domain} (${count})`;
+    storeFilter.appendChild(opt);
+  });
+  if (currentVal && counts.has(currentVal)) storeFilter.value = currentVal;
+}
+
+/**
+ * Liten statistikrad ovanför rutnätet: nya idag, billigaste, populäraste kategori.
+ */
+function renderStats() {
+  if (!statsStrip) return;
+  const visible = allDeals.filter((d) => !hiddenDeals.has(d.id));
+  if (visible.length === 0) {
+    statsStrip.classList.add('hidden');
+    return;
+  }
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  const today = visible.filter((d) => d.pubDate && new Date(d.pubDate).getTime() > dayAgo).length;
+  const newSince = previousVisitAt ? visible.filter(isNewSinceLastVisit).length : 0;
+  const priced = visible.filter((d) => d.price && !d.soldOut);
+  const cheapest = priced.length ? priced.reduce((a, b) => (a.price < b.price ? a : b)) : null;
+  const bestDiscount = priced.filter((d) => d.discountPct).sort((a, b) => b.discountPct - a.discountPct)[0] ?? null;
+  const catCounts = new Map();
+  visible.forEach((d) => {
+    if (d.category !== 'Övrigt') catCounts.set(d.category, (catCounts.get(d.category) ?? 0) + 1);
+  });
+  const topCat = [...catCounts.entries()].sort((a, b) => b[1] - a[1])[0] ?? null;
+
+  const items = [];
+  items.push(`<span class="stat"><strong>${today}</strong> nya senaste dygnet</span>`);
+  if (newSince > 0) items.push(`<span class="stat stat-new"><strong>${newSince}</strong> sedan ditt förra besök</span>`);
+  if (cheapest) items.push(`<span class="stat">Billigast <a href="#post-${escapeHtml(cheapest.postId)}"><strong>${formatPrice(cheapest.price)}</strong></a></span>`);
+  if (bestDiscount) items.push(`<span class="stat">Störst rabatt <a href="#post-${escapeHtml(bestDiscount.postId)}"><strong>-${bestDiscount.discountPct} %</strong></a></span>`);
+  if (topCat) items.push(`<span class="stat">Hetast: <strong>${escapeHtml(topCat[0])}</strong> (${topCat[1]})</span>`);
+  if (favorites.size > 0) items.push(`<span class="stat"><strong>${favorites.size}</strong> sparade</span>`);
+
+  statsStrip.innerHTML = items.join('<span class="stat-sep">·</span>');
+  statsStrip.classList.remove('hidden');
 }
 
 /**
@@ -969,16 +1214,192 @@ Ranka ALLA deals i listan. rank ska vara 1 för bäst, 2 för näst bäst, osv. 
 
 // Segmented control handling
 sourceFilter.addEventListener('click', (e) => {
-  if (e.target.tagName === 'BUTTON') {
-    sourceFilter.querySelectorAll('.segment').forEach(btn => btn.classList.remove('active'));
-    e.target.classList.add('active');
-    currentSourceFilter = e.target.dataset.value;
+  const btn = e.target.closest('button.segment');
+  if (btn) {
+    sourceFilter.querySelectorAll('.segment').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentSourceFilter = btn.dataset.value;
     applyFiltersAndSort();
   }
 });
 
 categoryFilter.addEventListener('change', applyFiltersAndSort);
+storeFilter?.addEventListener('change', applyFiltersAndSort);
 searchInput.addEventListener('input', applyFiltersAndSort);
+
+favoritesToggle?.addEventListener('click', () => {
+  showFavoritesOnly = !showFavoritesOnly;
+  favoritesToggle.classList.toggle('active', showFavoritesOnly);
+  favoritesToggle.setAttribute('aria-pressed', String(showFavoritesOnly));
+  applyFiltersAndSort();
+});
+
+// Kortåtgärder (spara / dela / dölj) via delegering så att omrendering inte tappar lyssnare.
+dealsGrid.addEventListener('click', async (e) => {
+  const btn = e.target.closest('button.card-action');
+  if (!btn) return;
+  e.preventDefault();
+  const id = btn.dataset.id;
+  const deal = allDeals.find((d) => d.id === id);
+  if (!deal) return;
+
+  switch (btn.dataset.action) {
+    case 'favorite':
+      if (favorites.has(id)) favorites.delete(id);
+      else favorites.add(id);
+      saveJsonToStorage(LS_FAVORITES, [...favorites]);
+      applyFiltersAndSort();
+      break;
+    case 'hide':
+      if (hiddenDeals.has(id)) hiddenDeals.delete(id);
+      else hiddenDeals.add(id);
+      saveJsonToStorage(LS_HIDDEN, [...hiddenDeals]);
+      applyFiltersAndSort();
+      break;
+    case 'share':
+      await shareDeal(deal, btn);
+      break;
+  }
+});
+
+/**
+ * Delar ett fynd via Web Share API, annars kopieras länken till urklipp.
+ * @param {Deal} deal
+ * @param {HTMLElement} btn
+ */
+async function shareDeal(deal, btn) {
+  const url = `${location.origin}${location.pathname}#post-${deal.postId}`;
+  const text = deal.price ? `${deal.title} - ${formatPrice(deal.price)}` : deal.title;
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: `FyndRadar: ${deal.title}`, text, url });
+      return;
+    }
+    await navigator.clipboard.writeText(url);
+    flashButton(btn, 'Länk kopierad');
+  } catch (err) {
+    if (err?.name !== 'AbortError') {
+      console.warn('Delning misslyckades:', err);
+      flashButton(btn, 'Kunde inte dela');
+    }
+  }
+}
+
+/** Visar en kort bekräftelse bredvid en knapp. */
+function flashButton(btn, message) {
+  const tip = document.createElement('span');
+  tip.className = 'action-toast';
+  tip.textContent = message;
+  btn.parentElement?.appendChild(tip);
+  setTimeout(() => tip.remove(), 1800);
+}
+
+// Tema
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  themeToggle?.setAttribute('aria-label', theme === 'light' ? 'Byt till mörkt tema' : 'Byt till ljust tema');
+  themeToggle?.setAttribute('title', theme === 'light' ? 'Byt till mörkt tema' : 'Byt till ljust tema');
+}
+
+themeToggle?.addEventListener('click', () => {
+  const current = document.documentElement.dataset.theme
+    || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+  const next = current === 'light' ? 'dark' : 'light';
+  localStorage.setItem(LS_THEME, next);
+  applyTheme(next);
+});
+
+// Bevakningar & notiser
+function updateNotifyStatus() {
+  if (!notifyStatus) return;
+  if (!('Notification' in window)) {
+    notifyStatus.textContent = 'Din webbläsare stödjer inte notiser.';
+    notifyBtn?.setAttribute('disabled', '');
+    return;
+  }
+  const perm = Notification.permission;
+  if (perm === 'granted') {
+    notifyStatus.textContent = watchWords.length
+      ? `Notiser på. Bevakar: ${watchWords.join(', ')}`
+      : 'Notiser på. Lägg till bevakningsord ovan.';
+    if (notifyBtn) notifyBtn.textContent = 'Notiser aktiva';
+    notifyBtn?.setAttribute('disabled', '');
+  } else if (perm === 'denied') {
+    notifyStatus.textContent = 'Notiser är blockerade i webbläsarens inställningar.';
+    notifyBtn?.setAttribute('disabled', '');
+  } else {
+    notifyStatus.textContent = 'Notiser skickas när ett nytt fynd matchar dina ord, så länge fliken är öppen.';
+    notifyBtn?.removeAttribute('disabled');
+  }
+}
+
+watchWordsInput?.addEventListener('change', () => {
+  watchWords = watchWordsInput.value
+    .split(/[,\n]/)
+    .map((w) => w.trim().toLowerCase())
+    .filter((w) => w.length >= 2);
+  saveJsonToStorage(LS_WATCH_WORDS, watchWords);
+  updateNotifyStatus();
+});
+
+notifyBtn?.addEventListener('click', async () => {
+  if (!('Notification' in window)) return;
+  const perm = await Notification.requestPermission();
+  updateNotifyStatus();
+  if (perm === 'granted') {
+    new Notification('FyndRadar', { body: 'Notiser är på. Du får ett meddelande när ett bevakat fynd dyker upp.', icon: 'icons/icon-192.png' });
+  }
+});
+
+showHiddenBtn?.addEventListener('click', () => {
+  showHidden = !showHidden;
+  showHiddenBtn.textContent = showHidden ? 'Göm dolda fynd igen' : `Visa dolda fynd (${hiddenDeals.size})`;
+  settingsModal.classList.add('hidden');
+  applyFiltersAndSort();
+});
+
+/**
+ * Skickar webbnotis för nya fynd som matchar bevakningsorden.
+ * @param {Deal[]} newDeals
+ */
+function notifyWatchedDeals(newDeals) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  if (watchWords.length === 0 || newDeals.length === 0) return;
+  const notified = new Set(loadJsonFromStorage(LS_NOTIFIED, []));
+  const matches = newDeals.filter((d) => {
+    if (notified.has(d.id)) return false;
+    const hay = `${d.title} ${d.description} ${d.category} ${d.store}`.toLowerCase();
+    return watchWords.some((w) => hay.includes(w));
+  });
+  matches.slice(0, 3).forEach((d) => {
+    const n = new Notification(d.title, {
+      body: `${d.price ? formatPrice(d.price) + ' · ' : ''}${d.store || d.sourceLabel}`,
+      icon: 'icons/icon-192.png',
+      tag: d.id,
+    });
+    n.onclick = () => {
+      window.focus();
+      location.hash = `#post-${d.postId}`;
+      n.close();
+    };
+    notified.add(d.id);
+  });
+  saveJsonToStorage(LS_NOTIFIED, [...notified].slice(-200));
+}
+
+/**
+ * Scrollar till och markerar kortet som URL-hashen pekar på (#post-123).
+ */
+function focusHashedCard() {
+  const hash = location.hash;
+  if (!hash.startsWith('#post-')) return;
+  const card = document.getElementById(hash.slice(1));
+  if (!card) return;
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  card.classList.add('is-highlighted');
+  setTimeout(() => card.classList.remove('is-highlighted'), 3000);
+}
+window.addEventListener('hashchange', focusHashedCard);
 
 // Modal handling
 settingsBtn.addEventListener('click', () => {
@@ -1065,7 +1486,43 @@ function clearAiRanking() {
  */
 function escapeHtml(str) {
   const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
-  return str.replace(/[&<>"']/g, (c) => map[c] ?? c);
+  return String(str ?? '').replace(/[&<>"']/g, (c) => map[c] ?? c);
+}
+
+/**
+ * Hostname utan www., eller tom sträng vid ogiltig URL.
+ * @param {string} url
+ * @returns {string}
+ */
+function safeHostname(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Är fyndet publicerat efter användarens förra besök?
+ * @param {Deal} deal
+ */
+function isNewSinceLastVisit(deal) {
+  if (!previousVisitAt || !deal.pubDate) return false;
+  return new Date(deal.pubDate).getTime() > previousVisitAt;
+}
+
+/**
+ * Sammanfattar prishistoriken för ett fynd från data/history.json.
+ * @param {Deal} deal
+ * @returns {{ lowest: number, count: number, isLowest: boolean, previous: {p:number,d:string}|null }|null}
+ */
+function getPriceHistorySummary(deal) {
+  if (!deal.prisjaktId || !deal.price) return null;
+  const entries = (priceHistory[deal.prisjaktId] ?? []).filter((e) => e.p && e.post !== deal.id);
+  if (entries.length === 0) return null;
+  const lowest = Math.min(...entries.map((e) => e.p));
+  const previous = [...entries].sort((a, b) => new Date(b.d) - new Date(a.d))[0];
+  return { lowest, count: entries.length, isLowest: deal.price <= lowest, previous };
 }
 
 /**
@@ -1384,12 +1841,16 @@ function updateDealImage(deal, imageUrl, catIconSvg) {
     const placeholder = card.querySelector('.card-visual-placeholder');
     if (placeholder) {
       placeholder.classList.add('has-image');
-      placeholder.innerHTML = `
+      // Byt bara ut bild/ikon - märken och åtgärdsknappar i samma container ska vara kvar.
+      placeholder.querySelectorAll('.card-visual-image, .card-visual-icon').forEach((el) => el.remove());
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = `
         <img class="card-visual-image img-fade-in" src="${escapeHtml(imageUrl)}" alt="${escapeHtml(deal.title)}" loading="lazy" referrerpolicy="no-referrer"
           onload="if(this.naturalWidth===1 && this.naturalHeight===1){ this.style.display='none'; this.nextElementSibling.style.display='flex'; this.closest('.card-visual-placeholder').classList.remove('has-image'); markImageAsFailed('${escapeHtml(deal.id)}'); }"
           onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'; this.closest('.card-visual-placeholder').classList.remove('has-image'); markImageAsFailed('${escapeHtml(deal.id)}');" />
         <span class="card-visual-icon" style="display:none">${catIconSvg}</span>
       `;
+      placeholder.prepend(...wrapper.childNodes);
     }
   }
 }
@@ -1603,12 +2064,17 @@ async function loadDeals({ silent = false } = {}) {
     const prevIds = allDeals.map((d) => d.id).join('|');
     const nextIds = deduped.map((d) => d.id).join('|');
     const changed = prevIds !== nextIds;
-    const newCount = allDeals.length > 0 ? deduped.filter((d) => !allDeals.some((o) => o.id === d.id)).length : 0;
+    const previousIds = new Set(allDeals.map((d) => d.id));
+    const newDeals = previousIds.size > 0 ? deduped.filter((d) => !previousIds.has(d.id)) : [];
+    const newCount = newDeals.length;
 
     if (changed || !silent) {
       allDeals = deduped;
+      saveSnapshot();
       populateCategoryFilter();
+      populateStoreFilter();
       applyFiltersAndSort(); // Render first so displayDeals is populated
+      if (newDeals.length > 0) notifyWatchedDeals(newDeals);
 
       // Auto-restore cached ranking if one exists for this set of deals
       const cacheKey = buildCacheKey();
@@ -1644,12 +2110,54 @@ async function loadDeals({ silent = false } = {}) {
   }
 }
 
+/**
+ * Sparar den parsade listan så nästa besök kan rendera direkt, innan nätverket svarat.
+ */
+function saveSnapshot() {
+  const slim = allDeals.map((d) => ({ ...d, imageUrl: undefined }));
+  saveJsonToStorage(LS_SNAPSHOT, { savedAt: Date.now(), deals: slim });
+}
+
+/**
+ * Renderar senaste sparade listan direkt om den är färsk nog (max 24 h).
+ * @returns {boolean} true om något renderades
+ */
+function renderSnapshot() {
+  const snap = loadJsonFromStorage(LS_SNAPSHOT, null);
+  if (!snap?.deals?.length || Date.now() - snap.savedAt > 24 * 60 * 60 * 1000) return false;
+  allDeals = snap.deals;
+  populateCategoryFilter();
+  populateStoreFilter();
+  applyFiltersAndSort();
+  statusText.textContent = 'Visar senast hämtade fynd - uppdaterar...';
+  return true;
+}
+
 async function init() {
   loadImageCache();
 
+  // Tema: sparat val, annars systemets.
+  const savedTheme = localStorage.getItem(LS_THEME);
+  if (savedTheme === 'light' || savedTheme === 'dark') applyTheme(savedTheme);
+  else applyTheme(matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+
+  if (watchWordsInput) watchWordsInput.value = watchWords.join(', ');
+  updateNotifyStatus();
+  if (showHiddenBtn) showHiddenBtn.textContent = `Visa dolda fynd (${hiddenDeals.size})`;
+
   refreshBtn?.addEventListener('click', () => loadDeals({ silent: allDeals.length > 0 }));
 
-  await loadDeals();
+  // Snabb första målning från förra besökets data, sedan riktig laddning i bakgrunden.
+  const hadSnapshot = renderSnapshot();
+  await loadDeals({ silent: hadSnapshot });
+  focusHashedCard();
+
+  // Markera besöket först nu, så att "Nytt"-märkena hinner beräknas mot förra besöket.
+  localStorage.setItem(LS_LAST_VISIT, String(Date.now()));
+
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    navigator.serviceWorker.register('sw.js').catch((err) => console.warn('SW-registrering misslyckades:', err));
+  }
 
   // Tyst bakgrundsuppdatering med jämna mellanrum, och när fliken blir synlig
   // igen efter att ha varit dold en längre stund.

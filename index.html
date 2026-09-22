@@ -5,6 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>FyndRadar - SweClockers Deals Ranking</title>
   <meta name="description" content="Samlade och rankade fynd från SweClockers forum. Hitta de bästa tipsen snabbt." />
+  <meta name="theme-color" content="#0a0e17" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#f5f7fb" media="(prefers-color-scheme: light)" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="FyndRadar" />
+  <meta property="og:title" content="FyndRadar - dagens fynd från SweClockers" />
+  <meta property="og:description" content="Samlade och rankade fynd från SweClockers forum, uppdaterat var kvart. Rabatter, prishistorik och bevakningar." />
+  <meta property="og:url" content="https://thu3n.github.io/sweclockers-rss/" />
+  <meta property="og:image" content="https://thu3n.github.io/sweclockers-rss/icons/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icons/icon-192.png" type="image/png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <script>
+    // Sätt temat innan CSS målas för att undvika blink.
+    try {
+      const q = new URLSearchParams(location.search).get('theme');
+      const t = (q === 'light' || q === 'dark') ? q : localStorage.getItem('fyndradar_theme');
+      if (q === 'light' || q === 'dark') localStorage.setItem('fyndradar_theme', q);
+      document.documentElement.dataset.theme = (t === 'light' || t === 'dark') ? t
+        : (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+    } catch (e) {}
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
@@ -37,6 +61,10 @@
             </span>
             <input type="text" id="search-input" placeholder="Sök produkt, butik eller märke..." />
           </div>
+          <button id="theme-toggle" class="btn-settings" aria-label="Byt tema" title="Byt tema">
+            <svg class="icon-sun" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+            <svg class="icon-moon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+          </button>
           <button id="settings-btn" class="btn-settings" aria-label="Inställningar" title="Inställningar">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 1 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
           </button>
@@ -62,12 +90,22 @@
             </select>
           </div>
           <div class="filter-group">
+            <select id="store-filter" aria-label="Butik">
+              <option value="all">Alla butiker</option>
+            </select>
+          </div>
+          <div class="filter-group">
             <select id="sort-select" aria-label="Sortering">
               <option value="date">Senaste först</option>
+              <option value="discount">Störst rabatt</option>
               <option value="price-asc">Pris (lägst först)</option>
               <option value="price-desc">Pris (högst först)</option>
             </select>
           </div>
+          <button id="favorites-toggle" class="btn-toggle" type="button" aria-pressed="false" title="Visa bara sparade fynd">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+            Sparade
+          </button>
         </div>
       </div>
     </section>
@@ -82,6 +120,9 @@
         </button>
       </div>
     </div>
+
+    <!-- Statistik -->
+    <div id="stats-strip" class="hidden" aria-live="polite"></div>
 
     <!-- AI Ranking Banner -->
     <div id="ai-banner" class="hidden">
@@ -127,7 +168,23 @@
               </button>
             </div>
           </div>
-          <div class="setting-item" style="margin-top: 1.5rem; border-top: 1px solid var(--border-subtle); padding-top: 1.5rem;">
+          <div class="setting-item setting-divider">
+            <h3>Bevakningar & notiser</h3>
+            <p class="setting-desc">Ange ord att bevaka, separerade med komma (t.ex. <em>5070, OLED, tangentbord</em>). När ett nytt fynd matchar får du en notis från webbläsaren, så länge fliken är öppen.</p>
+            <input type="text" id="watch-words" placeholder="5070, OLED, tangentbord" autocomplete="off" />
+            <div class="setting-row">
+              <button id="notify-btn" class="btn-ai" type="button">Aktivera notiser</button>
+              <span id="notify-status" class="setting-desc"></span>
+            </div>
+          </div>
+          <div class="setting-item setting-divider">
+            <h3>Dolda fynd</h3>
+            <p class="setting-desc">Fynd du dolt med krysset på kortet visas inte i listan. Här kan du ta fram dem igen.</p>
+            <div class="setting-row">
+              <button id="show-hidden-btn" class="btn-clear btn-clear-lg" type="button">Visa dolda fynd</button>
+            </div>
+          </div>
+          <div class="setting-item setting-divider">
             <h3>Felsökning & cache</h3>
             <p class="setting-desc">Om bilder inte visas eller om du vill hämta nya, kan du rensa den sparade bildcachen.</p>
             <div style="margin-top: 1rem;">

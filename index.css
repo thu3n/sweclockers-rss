@@ -1124,3 +1124,382 @@ footer {
   vertical-align: middle;
   flex-shrink: 0;
 }
+
+
+/* ========================================
+   Ljust tema
+   ======================================== */
+:root[data-theme="light"] {
+  --bg-primary: #f5f7fb;
+  --bg-secondary: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f8fafc;
+  --border-subtle: rgba(15, 23, 42, 0.1);
+  --border-glow: rgba(2, 132, 199, 0.3);
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+
+  --accent-blue: #0284c7;
+  --accent-purple: #7c3aed;
+  --accent-green: #059669;
+  --accent-amber: #d97706;
+  --accent-rose: #e11d48;
+  --accent-cyan: #0891b2;
+
+  --gradient-hero: linear-gradient(135deg, #e0f2fe 0%, #ede9fe 50%, #e0f2fe 100%);
+  --gradient-card-border: linear-gradient(135deg, rgba(2, 132, 199, 0.2), rgba(124, 58, 237, 0.2));
+  --gradient-ai: linear-gradient(135deg, #7c3aed, #0284c7);
+
+  --shadow-card: 0 2px 12px rgba(15, 23, 42, 0.06);
+  --shadow-hover: 0 8px 32px rgba(2, 132, 199, 0.15);
+}
+
+:root[data-theme="light"] .modal-overlay {
+  background: rgba(241, 245, 249, 0.85);
+}
+
+:root[data-theme="light"] .card-visual-placeholder {
+  background: linear-gradient(135deg, rgba(2, 132, 199, 0.05) 0%, rgba(124, 58, 237, 0.08) 100%);
+}
+
+:root[data-theme="light"] #ai-banner {
+  background: linear-gradient(90deg, rgba(124, 58, 237, 0.08), rgba(2, 132, 199, 0.08));
+}
+
+/* Temaknapp: visa rätt ikon */
+#theme-toggle .icon-sun { display: none; }
+#theme-toggle .icon-moon { display: block; }
+:root[data-theme="light"] #theme-toggle .icon-sun { display: block; }
+:root[data-theme="light"] #theme-toggle .icon-moon { display: none; }
+
+/* ========================================
+   Mobil: förhindra horisontellt spill
+   ======================================== */
+#deals-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+}
+
+.deal-card {
+  min-width: 0;
+}
+
+.card-title,
+.card-description,
+.card-ai-reason,
+.card-history {
+  overflow-wrap: anywhere;
+}
+
+/* ========================================
+   Filterknapp (Sparade)
+   ======================================== */
+.btn-toggle {
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all var(--transition-fast);
+}
+
+.btn-toggle:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-amber);
+}
+
+.btn-toggle.active {
+  color: var(--accent-amber);
+  border-color: var(--accent-amber);
+  background: rgba(251, 191, 36, 0.12);
+}
+
+.btn-toggle.active svg {
+  fill: currentColor;
+}
+
+/* ========================================
+   Statistikrad
+   ======================================== */
+#stats-strip {
+  max-width: 1400px;
+  margin: 0 auto 0.75rem;
+  padding: 0.55rem 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+#stats-strip.hidden {
+  display: none;
+}
+
+#stats-strip .stat strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+#stats-strip .stat-new strong {
+  color: var(--accent-green);
+}
+
+#stats-strip .stat a {
+  color: inherit;
+  border-bottom: 1px dotted var(--text-muted);
+}
+
+#stats-strip .stat a:hover strong {
+  color: var(--accent-blue);
+}
+
+#stats-strip .stat-sep {
+  opacity: 0.4;
+}
+
+/* ========================================
+   Kort: märken, åtgärder, historik
+   ======================================== */
+.card-badges {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: calc(100% - 110px);
+  z-index: 2;
+}
+
+.badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  white-space: nowrap;
+}
+
+.badge-discount {
+  background: #dc2626;
+}
+
+.badge-lowest {
+  background: #059669;
+}
+
+.badge-gone {
+  background: #475569;
+}
+
+.badge-new {
+  background: var(--accent-blue);
+  color: #0a0e17;
+}
+
+.card-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  z-index: 2;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+
+.deal-card:hover .card-actions,
+.deal-card:focus-within .card-actions,
+.card-actions:has(.active) {
+  opacity: 1;
+  transform: none;
+}
+
+@media (hover: none) {
+  .card-actions {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.card-action {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: #e2e8f0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.card-action:hover {
+  background: rgba(15, 23, 42, 0.95);
+  color: #fff;
+  transform: scale(1.08);
+}
+
+.card-action.active {
+  color: var(--accent-amber);
+  border-color: var(--accent-amber);
+}
+
+.action-toast {
+  position: absolute;
+  top: 36px;
+  right: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.3rem 0.6rem;
+  border-radius: var(--radius-sm);
+  background: var(--accent-green);
+  color: #0a0e17;
+  white-space: nowrap;
+  animation: card-in 0.2s ease both;
+}
+
+.card-price-original {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-decoration: line-through;
+  margin-left: 0.4rem;
+  font-weight: 500;
+}
+
+.card-history {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 0.4rem;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--border-subtle);
+}
+
+.deal-card.is-gone {
+  opacity: 0.6;
+}
+
+.deal-card.is-gone .card-visual-image {
+  filter: grayscale(1);
+}
+
+.deal-card.is-gone .card-price {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.deal-card.is-hidden {
+  opacity: 0.45;
+  border-style: dashed;
+}
+
+.deal-card.is-new {
+  border-color: rgba(56, 189, 248, 0.45);
+}
+
+.deal-card.is-highlighted {
+  border-color: var(--accent-purple);
+  box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.35), var(--shadow-hover);
+}
+
+.store-favicon {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  margin-right: 0.45rem;
+  vertical-align: -3px;
+  background: #fff;
+}
+
+/* ========================================
+   Inställningar
+   ======================================== */
+.setting-divider {
+  margin-top: 1.5rem;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 1.5rem;
+}
+
+.setting-item input[type="text"] {
+  width: 100%;
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.6rem 0.75rem;
+  outline: none;
+  margin-top: 0.75rem;
+}
+
+.setting-item input[type="text"]:focus {
+  border-color: var(--accent-blue);
+}
+
+.setting-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.setting-row .setting-desc {
+  margin: 0;
+  flex: 1;
+  min-width: 200px;
+}
+
+.btn-clear-lg {
+  padding: 0.6rem 1rem;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.btn-ai[disabled] {
+  opacity: 0.6;
+  cursor: default;
+}
+
+@media (max-width: 768px) {
+  #stats-strip {
+    padding: 0.5rem 1rem;
+    font-size: 0.78rem;
+  }
+
+  /* Sökfält + tema + inställningar ska rymmas på en rad */
+  .search-box {
+    min-width: 0;
+    flex: 1 1 160px;
+  }
+
+  .status-right {
+    white-space: nowrap;
+  }
+
+  .btn-toggle {
+    width: 100%;
+    justify-content: center;
+  }
+}

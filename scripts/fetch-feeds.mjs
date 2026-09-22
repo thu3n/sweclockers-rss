@@ -94,9 +94,46 @@ function extractItems(xml) {
         return false;
       }
     });
-    items.push({ link, productUrl: productUrl ?? null });
+
+    // Prisjakt-ID och pris för prishistoriken.
+    const prisjaktId = hrefs
+      .map((h) => h.match(/prisjakt\.nu\/.*?[?&]p=(\d+)/)?.[1] ?? h.match(/prisjakt\.nu\/(?:en\/)?product(?:\.php)?\/?(\d+)/)?.[1])
+      .find(Boolean) ?? null;
+    const text = decodeEntities(desc.replace(/<[^>]+>/g, ' '));
+    const priceRaw = text.match(/Pris:\s*([\d][\d\s.,]*)\s*(?:kr|:-)/i)?.[1] ?? text.match(/([\d][\d\s.,]*)\s*kr/i)?.[1];
+    let price = null;
+    if (priceRaw) {
+      const n = parseFloat(priceRaw.replace(/\s/g, '').replace(/\./g, '').replace(',', '.'));
+      if (!isNaN(n) && n > 10 && n < 10_000_000) price = Math.round(n);
+    }
+    const pubDate = body.match(/<pubDate>([^<]+)<\/pubDate>/)?.[1]?.trim();
+    const date = pubDate && !isNaN(Date.parse(pubDate)) ? new Date(pubDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+
+    items.push({ link, productUrl: productUrl ?? null, prisjaktId, price, date });
   }
   return items;
+}
+
+/**
+ * Kontrollerar om en butikssida är borta (404/410). Andra svar (403, 429, timeout)
+ * säger inget om produkten och räknas som "ok".
+ * @returns {Promise<'gone'|'ok'|undefined>} undefined = tillfälligt fel, kontrollera igen
+ */
+async function checkLinkStatus(productUrl) {
+  try {
+    const res = await fetch(productUrl, {
+      method: 'GET',
+      headers: { 'User-Agent': UA, Accept: 'text/html' },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(10000),
+    });
+    res.body?.cancel().catch(() => {});
+    if (res.status === 404 || res.status === 410) return 'gone';
+    if (res.status >= 500 || res.status === 429) return undefined;
+    return 'ok';
+  } catch {
+    return undefined;
+  }
 }
 
 function extractOgImage(html, baseUrl) {
@@ -219,6 +256,68 @@ async function main() {
   console.log(`Bilder: ${resolved}/${Object.keys(images).length} upplösta`);
 
   await writeFile(imagesFile, JSON.stringify(images, null, 2) + '\n', 'utf8');
+
+  // Prishistorik: ackumulera pris per Prisjakt-ID över tid. Behålls i 180 dagar.
+  const historyFile = path.join(DATA_DIR, 'history.json');
+  const history = await readJson(historyFile, {});
+  const cutoff = Date.now() - 180 * 24 * 60 * 60 * 1000;
+  let historyAdded = 0;
+  for (const item of allItems) {
+    if (!item.prisjaktId || !item.price) continue;
+    const list = history[item.prisjaktId] ?? [];
+    if (!list.some((e) => e.post === item.link)) {
+      list.push({ d: item.date, p: item.price, post: item.link });
+      historyAdded++;
+    }
+    history[item.prisjaktId] = list;
+  }
+  for (const [id, list] of Object.entries(history)) {
+    const kept = list.filter((e) => Date.parse(e.d) > cutoff).sort((a, b) => a.d.localeCompare(b.d));
+    if (kept.length === 0) delete history[id];
+    else history[id] = kept;
+  }
+  console.log(`Prishistorik: ${historyAdded} nya poster, ${Object.keys(history).length} produkter`);
+  await writeFile(historyFile, JSON.stringify(history) + '\n', 'utf8');
+
+  // Länkstatus: markera inlägg vars butikssida svarar 404/410. Kontrolleras om var 12:e timme.
+  const statusFile = path.join(DATA_DIR, 'status.json');
+  const previousFile = await readJson(statusFile, {});
+  const previousStatus = {};
+  for (const [link, s] of Object.entries(previousFile.status ?? {})) {
+    previousStatus[link] = { s, checked: previousFile.checked?.[link] ?? '1970-01-01T00:00:00Z' };
+  }
+  const status = {};
+  const now = Date.now();
+  const toCheck = [];
+  for (const item of allItems) {
+    if (!item.productUrl) continue;
+    const prev = previousStatus[item.link];
+    if (prev && now - Date.parse(prev.checked) < 12 * 60 * 60 * 1000) {
+      status[item.link] = prev;
+    } else {
+      toCheck.push(item);
+    }
+  }
+  const CHECK_LIMIT = 40;
+  let checkIdx = 0;
+  await Promise.all(
+    Array.from({ length: CONCURRENCY }, async () => {
+      while (checkIdx < Math.min(toCheck.length, CHECK_LIMIT)) {
+        const item = toCheck[checkIdx++];
+        const result = await checkLinkStatus(item.productUrl);
+        if (result) status[item.link] = { s: result, checked: new Date(now).toISOString() };
+        else if (previousStatus[item.link]) status[item.link] = previousStatus[item.link];
+      }
+    })
+  );
+  const gone = Object.values(status).filter((s) => s.s === 'gone').length;
+  console.log(`Länkstatus: ${Object.keys(status).length} kontrollerade, ${gone} borta`);
+  // Klienten läser "status"; "checked" är för jobbets egen del.
+  const statusOut = {
+    status: Object.fromEntries(Object.entries(status).map(([k, v]) => [k, v.s])),
+    checked: Object.fromEntries(Object.entries(status).map(([k, v]) => [k, v.checked])),
+  };
+  await writeFile(statusFile, JSON.stringify(statusOut, null, 1) + '\n', 'utf8');
   await writeFile(path.join(DATA_DIR, 'meta.json'), JSON.stringify(meta, null, 2) + '\n', 'utf8');
   console.log(`Klart. Uppdaterad ${meta.updatedAt}`);
 }
