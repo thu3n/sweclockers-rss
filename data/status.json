@@ -1,6 +1,5 @@
 {
  "status": {
-  "https://www.sweclockers.com/forum/post/21302680": "ok",
   "https://www.sweclockers.com/forum/post/21302553": "ok",
   "https://www.sweclockers.com/forum/post/21302174": "ok",
   "https://www.sweclockers.com/forum/post/21302160": "ok",
@@ -45,10 +44,10 @@
   "https://www.sweclockers.com/forum/post/21283269": "ok",
   "https://www.sweclockers.com/forum/post/21282790": "ok",
   "https://www.sweclockers.com/forum/post/21281451": "ok",
-  "https://www.sweclockers.com/forum/post/21281413": "ok"
+  "https://www.sweclockers.com/forum/post/21281413": "ok",
+  "https://www.sweclockers.com/forum/post/21302680": "ok"
  },
  "checked": {
-  "https://www.sweclockers.com/forum/post/21302680": "2026-10-14T15:17:41.266Z",
   "https://www.sweclockers.com/forum/post/21302553": "2026-10-14T22:36:47.564Z",
   "https://www.sweclockers.com/forum/post/21302174": "2026-10-14T22:36:47.564Z",
   "https://www.sweclockers.com/forum/post/21302160": "2026-10-14T22:36:47.564Z",
@@ -93,6 +92,7 @@
   "https://www.sweclockers.com/forum/post/21283269": "2026-10-14T22:36:47.564Z",
   "https://www.sweclockers.com/forum/post/21282790": "2026-10-14T22:36:47.564Z",
   "https://www.sweclockers.com/forum/post/21281451": "2026-10-14T22:36:47.564Z",
-  "https://www.sweclockers.com/forum/post/21281413": "2026-10-14T22:36:47.564Z"
+  "https://www.sweclockers.com/forum/post/21281413": "2026-10-14T22:36:47.564Z",
+  "https://www.sweclockers.com/forum/post/21302680": "2026-10-15T05:23:50.525Z"
  }
 }
