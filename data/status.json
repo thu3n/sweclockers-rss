@@ -2,6 +2,8 @@
  "status": {
   "https://www.sweclockers.com/forum/post/21304615": "ok",
   "https://www.sweclockers.com/forum/post/21304362": "ok",
+  "https://www.sweclockers.com/forum/post/21304109": "ok",
+  "https://www.sweclockers.com/forum/post/21302680": "ok",
   "https://www.sweclockers.com/forum/post/21302553": "ok",
   "https://www.sweclockers.com/forum/post/21302174": "ok",
   "https://www.sweclockers.com/forum/post/21302160": "ok",
@@ -42,13 +44,13 @@
   "https://www.sweclockers.com/forum/post/21283276": "ok",
   "https://www.sweclockers.com/forum/post/21283269": "ok",
   "https://www.sweclockers.com/forum/post/21282790": "ok",
-  "https://www.sweclockers.com/forum/post/21281451": "ok",
-  "https://www.sweclockers.com/forum/post/21304109": "ok",
-  "https://www.sweclockers.com/forum/post/21302680": "ok"
+  "https://www.sweclockers.com/forum/post/21281451": "ok"
  },
  "checked": {
   "https://www.sweclockers.com/forum/post/21304615": "2026-10-17T09:18:24.735Z",
   "https://www.sweclockers.com/forum/post/21304362": "2026-10-17T05:11:03.198Z",
+  "https://www.sweclockers.com/forum/post/21304109": "2026-10-17T13:04:05.041Z",
+  "https://www.sweclockers.com/forum/post/21302680": "2026-10-17T13:04:05.041Z",
   "https://www.sweclockers.com/forum/post/21302553": "2026-10-17T09:18:24.735Z",
   "https://www.sweclockers.com/forum/post/21302174": "2026-10-17T09:18:24.735Z",
   "https://www.sweclockers.com/forum/post/21302160": "2026-10-17T09:18:24.735Z",
@@ -89,8 +91,6 @@
   "https://www.sweclockers.com/forum/post/21283276": "2026-10-17T09:18:24.735Z",
   "https://www.sweclockers.com/forum/post/21283269": "2026-10-17T09:18:24.735Z",
   "https://www.sweclockers.com/forum/post/21282790": "2026-10-17T09:18:24.735Z",
-  "https://www.sweclockers.com/forum/post/21281451": "2026-10-17T09:18:24.735Z",
-  "https://www.sweclockers.com/forum/post/21304109": "2026-10-17T13:04:05.041Z",
-  "https://www.sweclockers.com/forum/post/21302680": "2026-10-17T13:04:05.041Z"
+  "https://www.sweclockers.com/forum/post/21281451": "2026-10-17T09:18:24.735Z"
  }
 }
