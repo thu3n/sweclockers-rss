@@ -1,10 +1,6 @@
 {
  "status": {
-  "https://www.sweclockers.com/forum/post/21307582": "ok",
-  "https://www.sweclockers.com/forum/post/21307548": "ok",
-  "https://www.sweclockers.com/forum/post/21307460": "ok",
   "https://www.sweclockers.com/forum/post/21307436": "ok",
-  "https://www.sweclockers.com/forum/post/21307345": "ok",
   "https://www.sweclockers.com/forum/post/21306075": "ok",
   "https://www.sweclockers.com/forum/post/21305959": "ok",
   "https://www.sweclockers.com/forum/post/21304615": "ok",
@@ -42,14 +38,14 @@
   "https://www.sweclockers.com/forum/post/21285082": "ok",
   "https://www.sweclockers.com/forum/post/21284833": "ok",
   "https://www.sweclockers.com/forum/post/21283276": "ok",
-  "https://www.sweclockers.com/forum/post/21283269": "ok"
+  "https://www.sweclockers.com/forum/post/21283269": "ok",
+  "https://www.sweclockers.com/forum/post/21307582": "ok",
+  "https://www.sweclockers.com/forum/post/21307460": "ok",
+  "https://www.sweclockers.com/forum/post/21307345": "ok",
+  "https://www.sweclockers.com/forum/post/21307548": "ok"
  },
  "checked": {
-  "https://www.sweclockers.com/forum/post/21307582": "2026-10-21T12:33:52.560Z",
-  "https://www.sweclockers.com/forum/post/21307548": "2026-10-21T12:33:52.560Z",
-  "https://www.sweclockers.com/forum/post/21307460": "2026-10-21T12:33:52.560Z",
   "https://www.sweclockers.com/forum/post/21307436": "2026-10-21T20:52:43.868Z",
-  "https://www.sweclockers.com/forum/post/21307345": "2026-10-21T12:33:52.560Z",
   "https://www.sweclockers.com/forum/post/21306075": "2026-10-21T20:52:43.868Z",
   "https://www.sweclockers.com/forum/post/21305959": "2026-10-21T20:52:43.868Z",
   "https://www.sweclockers.com/forum/post/21304615": "2026-10-21T17:38:10.690Z",
@@ -87,6 +83,10 @@
   "https://www.sweclockers.com/forum/post/21285082": "2026-10-21T17:38:10.690Z",
   "https://www.sweclockers.com/forum/post/21284833": "2026-10-21T17:38:10.690Z",
   "https://www.sweclockers.com/forum/post/21283276": "2026-10-21T17:38:10.690Z",
-  "https://www.sweclockers.com/forum/post/21283269": "2026-10-21T17:38:10.690Z"
+  "https://www.sweclockers.com/forum/post/21283269": "2026-10-21T17:38:10.690Z",
+  "https://www.sweclockers.com/forum/post/21307582": "2026-10-22T02:24:41.814Z",
+  "https://www.sweclockers.com/forum/post/21307460": "2026-10-22T02:24:41.814Z",
+  "https://www.sweclockers.com/forum/post/21307345": "2026-10-22T02:24:41.814Z",
+  "https://www.sweclockers.com/forum/post/21307548": "2026-10-22T02:24:41.814Z"
  }
 }
